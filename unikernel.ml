@@ -9,6 +9,8 @@ module Main (C : V1_LWT.CONSOLE) (F : Upload_queue.FS) (H : Cohttp_lwt.Server) :
   end = struct
     module Q = Upload_queue.Make(F)
 
+    let unsupported_method = H.respond_error ~status:`Bad_request ~body:"Method not supported\n" ()
+
     let put q request body =
       match Cohttp.Header.get request.H.Request.headers "Content-Length" with
       | None -> H.respond_error ~status:`Bad_request ~body:"Missing Content-Length\n" ()
@@ -41,6 +43,18 @@ module Main (C : V1_LWT.CONSOLE) (F : Upload_queue.FS) (H : Cohttp_lwt.Server) :
       Q.Download.delete q >>= fun () ->
       H.respond_string ~status:`OK ~body:"OK\n" ()
 
+    let handle_uploader q request body =
+      match H.Request.meth request with
+      | `PUT -> put q request body
+      | `POST -> H.respond_error ~status:`Bad_request ~body:"Use PUT, not POST\n" ()
+      | `GET | `HEAD | `OPTIONS | `PATCH | `DELETE -> unsupported_method
+
+    let handle_downloader q request =
+      match H.Request.meth request with
+      | `GET -> get q
+      | `DELETE -> delete q
+      | `HEAD | `PUT | `POST | `OPTIONS | `PATCH -> unsupported_method
+
     let start c fs http =
       Log.write := C.log_s c;
       Log.info "start in queue service" >>= fun () ->
@@ -49,13 +63,10 @@ module Main (C : V1_LWT.CONSOLE) (F : Upload_queue.FS) (H : Cohttp_lwt.Server) :
 
       let callback _conn_id request body =
         try_lwt
-          match H.Request.meth request with
-          | `PUT -> put q request body
-          | `GET -> get q
-          | `DELETE -> delete q
-          | `POST -> H.respond_error ~status:`Bad_request ~body:"Use PUT, not POST\n" ()
-          | `HEAD | `OPTIONS | `PATCH ->
-              H.respond_error ~status:`Bad_request ~body:"Method not supported\n" ()
+          match Uri.path request.H.Request.uri with
+          | "/uploader" -> handle_uploader q request body
+          | "/downloader" -> handle_downloader q request
+          | path -> H.respond_error ~status:`Bad_request ~body:(Printf.sprintf "Bad path '%s'\n" path) ()
         with ex ->
           Log.warn "error handling HTTP request: %s\n%s"
             (Printexc.to_string ex)
