@@ -1,0 +1,2 @@
+PKG str lwt.syntax mirage-console-unix mirage-http mirage-types.lwt tcpip.stack-socket
+EXT lwt
