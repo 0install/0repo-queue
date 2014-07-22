@@ -67,6 +67,23 @@ module Make (F : FS) = struct
           Log.info "file '%s' exists; retrying..." name >> mktemp fs
       | `Error x -> failwith (Fat.Fs.string_of_filesystem_error x)
 
+    (* Copy [data] to the (page-aligned) [page_buffer] and write it to disk.
+     * Repeat until all data has been transferred. *)
+    let write_in_pages ~page_buffer fs name base data =
+      let data_len = String.length data in
+      let buffer_len = Cstruct.len page_buffer in
+      let rec chunk offset =
+        let chunk_len = min buffer_len (data_len - offset) in
+        if chunk_len = 0 then return ()
+        else (
+          Cstruct.blit_from_string data offset page_buffer 0 chunk_len;
+          Log.info "writing %d bytes to %s" chunk_len name >>= fun () ->
+          F.write fs name (base + offset) (Cstruct.sub page_buffer 0 chunk_len) >>|= fun () ->
+          Log.info "wrote %d bytes to %s" chunk_len name >>= fun () ->
+          chunk (offset + chunk_len)
+        ) in
+      chunk 0
+
     let add_as q name {size; data} =
       (* Set the first byte to N to indicate that we're not done yet.
        * If we reboot while this flag is set, the partial upload will
@@ -74,12 +91,14 @@ module Make (F : FS) = struct
       let partial_flag = Cstruct.of_string "N" in
       F.write q.fs name 0 partial_flag >>|= fun () ->
 
+      let page_buffer = Io_page.get 1 |> Io_page.to_cstruct in
+
       (* Stream data to file. *)
       let offset = ref 1 in
       data |> Lwt_stream.iter_s (fun part ->
-        let page_buffer = Cstruct.of_string part in
-        F.write q.fs name !offset page_buffer >>|= fun () ->
-        Log.info "wrote %d bytes to %s" (String.length part) name >>= fun () ->
+        Log.info "add_as: writing part (%d bytes)" (String.length part) >>= fun () ->
+
+        write_in_pages ~page_buffer q.fs name !offset part >>= fun () ->
         offset := !offset + String.length part;
         return ()
       ) >>= fun () ->
