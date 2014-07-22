@@ -118,7 +118,7 @@ module Make (F : FS) = struct
     let send q name =
       F.size q.fs name >>|= fun len ->
       let offset = ref 1L in
-      let max_chunk_size = 512L in
+      let max_chunk_size = 0x100000L in
       let next () =
         try_lwt
           let chunk_size = min max_chunk_size (Int64.sub len !offset) in
