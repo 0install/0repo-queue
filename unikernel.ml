@@ -57,21 +57,15 @@ module Main (C : V1_LWT.CONSOLE) (F : Upload_queue.FS) (H : Cohttp_lwt.Server) :
 
     let start c fs http =
       Log.write := C.log_s c;
-      Log.info "start in queue service" >>= fun () ->
+      Log.info "starting queue service" >>= fun () ->
 
       Q.create fs >>= fun q ->
 
       let callback _conn_id request body =
-        try_lwt
-          match Uri.path request.H.Request.uri with
-          | "/uploader" -> handle_uploader q request body
-          | "/downloader" -> handle_downloader q request
-          | path -> H.respond_error ~status:`Bad_request ~body:(Printf.sprintf "Bad path '%s'\n" path) ()
-        with ex ->
-          Log.warn "error handling HTTP request: %s\n%s"
-            (Printexc.to_string ex)
-            (Printexc.get_backtrace ()) >>= fun () ->
-          raise ex in
+        match Uri.path request.H.Request.uri with
+        | "/uploader" -> handle_uploader q request body
+        | "/downloader" -> handle_downloader q request
+        | path -> H.respond_error ~status:`Bad_request ~body:(Printf.sprintf "Bad path '%s'\n" path) () in
 
       let conn_closed _conn_id () =
         Log.info "connection closed" |> ignore in
