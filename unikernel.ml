@@ -12,7 +12,7 @@ module Main (C : V1_LWT.CONSOLE) (F : Upload_queue.FS) (H : Cohttp_lwt.Server) :
     let unsupported_method = H.respond_error ~status:`Bad_request ~body:"Method not supported\n" ()
 
     let put q request body =
-      match Cohttp.Header.get request.H.Request.headers "Content-Length" with
+      match Cohttp.Header.get request.Cohttp.Request.headers "Content-Length" with
       | None -> H.respond_error ~status:`Bad_request ~body:"Missing Content-Length\n" ()
       | Some len ->
           let item = { Upload_queue.
@@ -63,7 +63,7 @@ module Main (C : V1_LWT.CONSOLE) (F : Upload_queue.FS) (H : Cohttp_lwt.Server) :
 
       let callback _conn_id request body =
         try_lwt
-          match Uri.path request.H.Request.uri with
+          match Uri.path request.Cohttp.Request.uri with
           | "/uploader" -> handle_uploader q request body
           | "/downloader" -> handle_downloader q request
           | path -> H.respond_error ~status:`Bad_request ~body:(Printf.sprintf "Bad path '%s'\n" path) ()
