@@ -67,23 +67,6 @@ module Make (F : FS) = struct
           Log.info "file '%s' exists; retrying..." name >> mktemp fs
       | `Error x -> failwith (Fat.Fs.string_of_filesystem_error x)
 
-    (* Copy [data] to the (page-aligned) [page_buffer] and write it to disk.
-     * Repeat until all data has been transferred. *)
-    let write_in_pages ~page_buffer fs name base data =
-      let data_len = String.length data in
-      let buffer_len = Cstruct.len page_buffer in
-      let rec chunk offset =
-        let chunk_len = min buffer_len (data_len - offset) in
-        if chunk_len = 0 then return ()
-        else (
-          Cstruct.blit_from_string data offset page_buffer 0 chunk_len;
-          Log.info "writing %d bytes to %s" chunk_len name >>= fun () ->
-          F.write fs name (base + offset) (Cstruct.sub page_buffer 0 chunk_len) >>|= fun () ->
-          Log.info "wrote %d bytes to %s" chunk_len name >>= fun () ->
-          chunk (offset + chunk_len)
-        ) in
-      chunk 0
-
     let add_as q name {size; data} =
       (* Set the first byte to N to indicate that we're not done yet.
        * If we reboot while this flag is set, the partial upload will
@@ -91,20 +74,37 @@ module Make (F : FS) = struct
       let partial_flag = Cstruct.of_string "N" in
       F.write q.fs name 0 partial_flag >>|= fun () ->
 
-      let page_buffer = Io_page.get 1 |> Io_page.to_cstruct in
-
       (* Stream data to file. *)
-      let offset = ref 1 in
-      data |> Lwt_stream.iter_s (fun part ->
-        Log.info "add_as: writing part (%d bytes)" (String.length part) >>= fun () ->
+      let file_offset = ref 1 in
 
-        write_in_pages ~page_buffer q.fs name !offset part >>= fun () ->
-        offset := !offset + String.length part;
-        return ()
-      ) >>= fun () ->
+      let page_buffer = Io_page.get 256 |> Io_page.to_cstruct in
+      let page_buffer_used = ref 0 in
+
+      let flush_page_buffer () =
+        Log.info "Flushing %d bytes to disk" !page_buffer_used >>= fun () ->
+        let buffered_data = Cstruct.sub page_buffer 0 !page_buffer_used in
+        F.write q.fs name !file_offset buffered_data >>|= fun () ->
+        file_offset := !file_offset + !page_buffer_used;
+        page_buffer_used := 0;
+        return () in
+
+      let rec add_data src i =
+        let src_remaining = String.length src - i in
+        if src_remaining = 0 then return ()
+        else (
+          let page_buffer_free = Cstruct.len page_buffer - !page_buffer_used in
+          let chunk_size = min page_buffer_free src_remaining in
+          Cstruct.blit_from_string src i page_buffer !page_buffer_used chunk_size;
+          page_buffer_used := !page_buffer_used + chunk_size;
+          lwt () = if page_buffer_free = chunk_size then flush_page_buffer () else return () in
+          add_data src (i + chunk_size)
+        ) in
+
+      data |> Lwt_stream.iter_s (fun data -> add_data data 0) >>=
+      flush_page_buffer >>= fun () ->
 
       (* Check size is correct and flag file as complete. *)
-      let actual_size = Int64.of_int (!offset - 1) in
+      let actual_size = Int64.of_int (!file_offset - 1) in
       if actual_size = size then (
         let complete_flag = Cstruct.of_string "Y" in
         F.write q.fs name 0 complete_flag >>|= fun () ->
