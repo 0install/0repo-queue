@@ -3,60 +3,55 @@
 
 open Lwt
 
-module A = Bigarray.Array1
+module Make(B : V1_LWT.BLOCK) = struct
+  let string_of_error = function
+    | `Unknown x -> x
+    | `Unimplemented -> "Unimplemented"
+    | `Is_read_only -> "Is_read_only"
+    | `Disconnected -> "Disconnected"
 
-type +'a io = 'a Lwt.t
-type t = Cstruct.t
-type id = unit
-type error = [
-  | `Unknown of string (** an undiagnosed error *)
-  | `Unimplemented     (** operation not yet implemented in the code *)
-  | `Is_read_only      (** you cannot write to a read/only instance *)
-  | `Disconnected      (** the device has been previously disconnected *)
-]
+  (** Abort on error *)
+  let (>>|=) x f =
+    x >>= function
+    | `Error x -> failwith (string_of_error x)
+    | `Ok v -> f v
 
-let sector_size = 512
+  type t = {
+    raw : B.t;
+  }
 
-type info = {
-  read_write: bool;    (** True if we can write, false if read/only *)
-  sector_size: int;    (** Octets per sector *)
-  size_sectors: int64; (** Total sectors per device *)
-}
+  let write cache sector_start buffers =
+    B.write cache.raw sector_start buffers
 
-let write device sector_start buffers =
-  let rec loop dstoff = function
-    | [] -> ()
-    | x :: xs ->
-        Cstruct.blit x 0 device dstoff (Cstruct.len x);
-        loop (dstoff + (Cstruct.len x)) xs in
-  loop (Int64.to_int sector_start * sector_size) buffers;
-  `Ok () |> return
+  let read cache sector_start buffers =
+    B.read cache.raw sector_start buffers
 
-let read device sector_start buffers =
-  let rec loop dstoff = function
-    | [] -> ()
-    | x :: xs ->
-        Cstruct.blit device dstoff x 0 (Cstruct.len x);
-        loop (dstoff + (Cstruct.len x)) xs in
-  loop (Int64.to_int sector_start * sector_size) buffers;
-  `Ok () |> return
+  let disconnect cache = B.disconnect cache.raw
 
-let info = {
-  read_write = true;
-  sector_size;
-  size_sectors = 64L;
-}
+  type id = B.t
 
-let size = info.sector_size * Int64.to_int info.size_sectors
+  (* Why can't this just be B.info? *)
+  type info = {
+    read_write : bool;
+    sector_size : int;
+    size_sectors : int64;
+  }
 
-let get_info _device = return info
+  let get_info cache =
+    B.get_info cache.raw >>= fun raw_info ->
+    return {
+      read_write = raw_info.B.read_write;
+      sector_size = raw_info.B.sector_size;
+      size_sectors = raw_info.B.size_sectors;
+    }
 
-let disconnect _device = return ()
+  type 'a io = 'a B.io
+  type error = B.error
 
-let id _device = ()
+  let id cache = cache.raw
 
-type page_aligned_buffer = Cstruct.t
+  type page_aligned_buffer = B.page_aligned_buffer
 
-let connect () =
-  let data = Cstruct.create size in
-  `Ok data |> return
+  let connect raw =
+    return (`Ok { raw })
+end

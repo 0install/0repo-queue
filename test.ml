@@ -4,7 +4,8 @@
 open OUnit
 open Lwt
 
-module Fat1 = Fat.Fs.Make(Fake_block)(Io_page)
+module BC = Block_cache.Make(Fake_block)
+module Fat1 = Fat.Fs.Make(BC)(Io_page)
 module Q = Upload_queue.Make(Fat1)
 
 let () =
@@ -20,6 +21,7 @@ let id x = x
 
 let make_queue () =
   Fake_block.connect () >>|=
+  BC.connect >>|=
   Fat1.connect >>|= fun fs ->
   Fat1.format fs (Int64.of_int Fake_block.size) >>|= fun () ->
   Q.create fs
@@ -97,6 +99,7 @@ let suite = "queue" >:::[
 
   "crash" >:: (fun () -> Lwt_unix.run begin
     Fake_block.connect () >>|=
+    BC.connect >>|=
     Fat1.connect >>|= fun fs ->
     Fat1.format fs (Int64.of_int Fake_block.size) >>|= fun () ->
     Q.create fs >>= fun q ->
