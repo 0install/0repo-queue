@@ -18,13 +18,61 @@ module Make(B : V1_LWT.BLOCK) = struct
 
   type t = {
     raw : B.t;
+    cache : (int64, B.page_aligned_buffer) Hashtbl.t;
+    sector_len : int;
   }
 
-  let write cache sector_start buffers =
-    B.write cache.raw sector_start buffers
+  (** Call [fn sector page] for each page in each buffer. *)
+  let each_page bc sector_start buffers fn =
+    let do_buffer sector buffer =
+      let len = Cstruct.len buffer in
+      let rec loop_page s i =
+        if i = len then return ()
+        else (
+          let page = Cstruct.sub buffer i bc.sector_len in
+          fn s page >>= fun () ->
+          loop_page (Int64.add s 1L) (i + bc.sector_len)
+        ) in
+      loop_page sector 0 in
 
-  let read cache sector_start buffers =
-    B.read cache.raw sector_start buffers
+    let rec loop s = function
+      | [] -> return (`Ok ())
+      | b :: bs ->
+          do_buffer s b >>= fun () ->
+          loop (Int64.add s (Cstruct.len b / bc.sector_len |> Int64.of_int)) bs
+    in
+    loop sector_start buffers
+
+  let mutex = Lwt_mutex.create ()
+
+  let write bc sector_start buffers =
+    Lwt_mutex.with_lock mutex (fun () ->
+      B.write bc.raw sector_start buffers >>|= fun () ->
+      each_page bc sector_start buffers (fun sector page ->
+        let cached = Io_page.get 1 |> Io_page.to_cstruct in
+        let cached = Cstruct.sub cached 0 bc.sector_len in
+        Cstruct.blit page 0 cached 0 bc.sector_len;
+        Hashtbl.replace bc.cache sector cached;
+        return ()
+      )
+    )
+
+  let read bc sector_start buffers =
+    Lwt_mutex.with_lock mutex (fun () ->
+      each_page bc sector_start buffers (fun sector page ->
+        lwt cached =
+          try_lwt
+            return (Hashtbl.find bc.cache sector)
+          with Not_found ->
+            let page = Io_page.get 1 |> Io_page.to_cstruct in
+            let page = Cstruct.sub page 0 bc.sector_len in
+            B.read bc.raw sector [page] >>|= fun () ->
+            Hashtbl.add bc.cache sector page;
+            return page in
+        Cstruct.blit cached 0 page 0 bc.sector_len;
+        return ()
+      )
+    )
 
   let disconnect cache = B.disconnect cache.raw
 
@@ -53,5 +101,10 @@ module Make(B : V1_LWT.BLOCK) = struct
   type page_aligned_buffer = B.page_aligned_buffer
 
   let connect raw =
-    return (`Ok { raw })
+    B.get_info raw >>= fun info ->
+    return (`Ok {
+      sector_len = info.B.sector_size;
+      raw;
+      cache = Hashtbl.create 1024;
+    })
 end
