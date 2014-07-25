@@ -29,11 +29,9 @@ module Make (F : FS) = struct
     | `Ok v -> f v
 
   let create fs =
-(*
     Log.info "formatting..." >>= fun () ->
     F.format fs 26843545L >>|= fun () ->
     Log.info "formatting done" >>= fun () ->
-*)
 
     let queue, push_opt = Lwt_stream.create () in
     let push name =
@@ -87,7 +85,7 @@ module Make (F : FS) = struct
       let page_buffer_used = ref 0 in
 
       let flush_page_buffer () =
-        Log.info "Flushing %d bytes to disk" !page_buffer_used >>= fun () ->
+        Log.info "Upload_queue: Flushing %d bytes to disk" !page_buffer_used >>= fun () ->
         let buffered_data = Cstruct.sub page_buffer 0 !page_buffer_used in
         F.write q.fs name !file_offset buffered_data >>|= fun () ->
         file_offset := !file_offset + !page_buffer_used;
