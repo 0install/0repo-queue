@@ -50,8 +50,7 @@ module Make(B : V1_LWT.BLOCK) = struct
     Lwt_mutex.with_lock mutex (fun () ->
       B.write bc.raw sector_start buffers >>|= fun () ->
       each_page bc sector_start buffers (fun sector page ->
-        let cached = Io_page.get 1 |> Io_page.to_cstruct in
-        let cached = Cstruct.sub cached 0 bc.sector_len in
+        let cached = Cstruct.create bc.sector_len in
         Cstruct.blit page 0 cached 0 bc.sector_len;
         Memory_cache.put bc.cache sector cached;
         return ()
@@ -61,17 +60,16 @@ module Make(B : V1_LWT.BLOCK) = struct
   let read bc sector_start buffers =
     Lwt_mutex.with_lock mutex (fun () ->
       each_page bc sector_start buffers (fun sector page ->
-        lwt cached =
-          match Memory_cache.get bc.cache sector with
-          | Some cached -> return cached
-          | None ->
-              let page = Io_page.get 1 |> Io_page.to_cstruct in
-              let page = Cstruct.sub page 0 bc.sector_len in
-              B.read bc.raw sector [page] >>|= fun () ->
-              Memory_cache.put bc.cache sector page;
-              return page in
-        Cstruct.blit cached 0 page 0 bc.sector_len;
-        return ()
+        match Memory_cache.get bc.cache sector with
+        | Some cached ->
+            Cstruct.blit cached 0 page 0 bc.sector_len;
+            return ()
+        | None ->
+            B.read bc.raw sector [page] >>|= fun () ->
+            let cached = Cstruct.create bc.sector_len in
+            Cstruct.blit page 0 cached 0 bc.sector_len;
+            Memory_cache.put bc.cache sector cached;
+            return ()
       )
     )
 

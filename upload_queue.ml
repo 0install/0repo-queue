@@ -29,6 +29,12 @@ module Make (F : FS) = struct
     | `Ok v -> f v
 
   let create fs =
+(*
+    Log.info "formatting..." >>= fun () ->
+    F.format fs 26843545L >>|= fun () ->
+    Log.info "formatting done" >>= fun () ->
+*)
+
     let queue, push_opt = Lwt_stream.create () in
     let push name =
       Log.info "adding '%s' to queue" name >>= fun () ->
