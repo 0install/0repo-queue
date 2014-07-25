@@ -41,6 +41,35 @@ let with_queue fn : unit =
   Lwt_unix.run (make_queue () >>= fn)
 
 let suite = "queue" >:::[
+  "mem_cache" >:: (fun () ->
+    let mc = Memory_cache.create 3 in
+
+    let check expected actual =
+      let printer = function
+        | None -> "None"
+        | Some x -> x in
+      assert_equal ~printer expected actual in
+
+    Memory_cache.get mc 5L |> check None;
+    Memory_cache.put mc 5L "five";
+    Memory_cache.get mc 5L |> check (Some "five");
+
+    Memory_cache.put mc 6L "six";
+    Memory_cache.put mc 7L "seven";
+    Memory_cache.put mc 8L "eight";
+    Memory_cache.get mc 5L |> check None;
+    Memory_cache.get mc 6L |> check (Some "six");
+    Memory_cache.get mc 7L |> check (Some "seven");
+    Memory_cache.get mc 8L |> check (Some "eight");
+
+    Memory_cache.get mc 6L |> check (Some "six");
+    Memory_cache.put mc 9L "nine";
+
+    Memory_cache.get mc 6L |> check (Some "six");
+    Memory_cache.get mc 7L |> check None;
+    Memory_cache.get mc 8L |> check (Some "eight");
+    Memory_cache.get mc 9L |> check (Some "nine");
+  );
 
   "full" >:: (fun () -> with_queue (fun q ->
     let upload x =
