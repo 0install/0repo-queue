@@ -11,6 +11,8 @@ module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (H : Cohttp_lwt.Server) :
     module F = Fat.Fs.Make(BC)(Io_page)
     module Q = Upload_queue.Make(F)
 
+    let mem_cache_size = 1024 * 1024
+
     let unsupported_method = H.respond_error ~status:`Bad_request ~body:"Method not supported\n" ()
 
     let put q request body =
@@ -61,7 +63,7 @@ module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (H : Cohttp_lwt.Server) :
       Log.write := C.log_s c;
       Log.info "start in queue service" >>= fun () ->
 
-      BC.connect b >>= function
+      BC.connect (b, mem_cache_size) >>= function
       | `Error _ -> failwith "BC.connect"
       | `Ok bc ->
       F.connect bc >>= function

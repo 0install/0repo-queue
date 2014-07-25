@@ -18,8 +18,9 @@ module Make(B : V1_LWT.BLOCK) = struct
 
   type t = {
     raw : B.t;
-    cache : (int64, B.page_aligned_buffer) Hashtbl.t;
+    cache : B.page_aligned_buffer Memory_cache.t;
     sector_len : int;
+    mem_cache_size : int;
   }
 
   (** Call [fn sector page] for each page in each buffer. *)
@@ -52,7 +53,7 @@ module Make(B : V1_LWT.BLOCK) = struct
         let cached = Io_page.get 1 |> Io_page.to_cstruct in
         let cached = Cstruct.sub cached 0 bc.sector_len in
         Cstruct.blit page 0 cached 0 bc.sector_len;
-        Hashtbl.replace bc.cache sector cached;
+        Memory_cache.put bc.cache sector cached;
         return ()
       )
     )
@@ -61,14 +62,14 @@ module Make(B : V1_LWT.BLOCK) = struct
     Lwt_mutex.with_lock mutex (fun () ->
       each_page bc sector_start buffers (fun sector page ->
         lwt cached =
-          try_lwt
-            return (Hashtbl.find bc.cache sector)
-          with Not_found ->
-            let page = Io_page.get 1 |> Io_page.to_cstruct in
-            let page = Cstruct.sub page 0 bc.sector_len in
-            B.read bc.raw sector [page] >>|= fun () ->
-            Hashtbl.add bc.cache sector page;
-            return page in
+          match Memory_cache.get bc.cache sector with
+          | Some cached -> return cached
+          | None ->
+              let page = Io_page.get 1 |> Io_page.to_cstruct in
+              let page = Cstruct.sub page 0 bc.sector_len in
+              B.read bc.raw sector [page] >>|= fun () ->
+              Memory_cache.put bc.cache sector page;
+              return page in
         Cstruct.blit cached 0 page 0 bc.sector_len;
         return ()
       )
@@ -76,7 +77,7 @@ module Make(B : V1_LWT.BLOCK) = struct
 
   let disconnect cache = B.disconnect cache.raw
 
-  type id = B.t
+  type id = B.t * int
 
   (* Why can't this just be B.info? *)
   type info = {
@@ -96,15 +97,16 @@ module Make(B : V1_LWT.BLOCK) = struct
   type 'a io = 'a B.io
   type error = B.error
 
-  let id cache = cache.raw
+  let id cache = (cache.raw, cache.mem_cache_size)
 
   type page_aligned_buffer = B.page_aligned_buffer
 
-  let connect raw =
+  let connect (raw, size) =
     B.get_info raw >>= fun info ->
     return (`Ok {
       sector_len = info.B.sector_size;
       raw;
-      cache = Hashtbl.create 1024;
+      cache = Memory_cache.create (size / info.B.sector_size);
+      mem_cache_size = size;
     })
 end

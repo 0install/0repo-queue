@@ -20,8 +20,8 @@ let (>>|=) x f =
 let id x = x
 
 let make_queue () =
-  Fake_block.connect () >>|=
-  BC.connect >>|=
+  Fake_block.connect () >>|= fun b ->
+  BC.connect (b, 1024) >>|=
   Fat1.connect >>|= fun fs ->
   Fat1.format fs (Int64.of_int Fake_block.size) >>|= fun () ->
   Q.create fs
@@ -127,8 +127,8 @@ let suite = "queue" >:::[
   ));
 
   "crash" >:: (fun () -> Lwt_unix.run begin
-    Fake_block.connect () >>|=
-    BC.connect >>|=
+    Fake_block.connect () >>|= fun b ->
+    BC.connect (b, 1024) >>|=
     Fat1.connect >>|= fun fs ->
     Fat1.format fs (Int64.of_int Fake_block.size) >>|= fun () ->
     Q.create fs >>= fun q ->
