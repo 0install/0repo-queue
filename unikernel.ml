@@ -3,10 +3,11 @@
 
 open Lwt
 
-module Main (C : V1_LWT.CONSOLE) (F : Upload_queue.FS) (H : Cohttp_lwt.Server) :
+module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (H : Cohttp_lwt.Server) :
   sig
-    val start : C.t -> F.t -> (H.t -> unit Lwt.t) -> unit Lwt.t
+    val start : C.t -> B.t -> (H.t -> unit Lwt.t) -> unit Lwt.t
   end = struct
+    module F = Fat.Fs.Make(B)(Io_page)
     module Q = Upload_queue.Make(F)
 
     let unsupported_method = H.respond_error ~status:`Bad_request ~body:"Method not supported\n" ()
@@ -55,10 +56,13 @@ module Main (C : V1_LWT.CONSOLE) (F : Upload_queue.FS) (H : Cohttp_lwt.Server) :
       | `DELETE -> delete q
       | `HEAD | `PUT | `POST | `OPTIONS | `PATCH -> unsupported_method
 
-    let start c fs http =
+    let start c b http =
       Log.write := C.log_s c;
       Log.info "start in queue service" >>= fun () ->
 
+      F.connect b >>= function
+      | `Error _ -> failwith "F.connect"
+      | `Ok fs ->
       Q.create fs >>= fun q ->
 
       let callback _conn_id request body =

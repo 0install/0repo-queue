@@ -1,6 +1,9 @@
 open Mirage
 
-let queue = foreign "Unikernel.Main" (console @-> fs @-> http @-> job)
+let queue = foreign
+  ~libraries:["fat-filesystem"]
+  ~packages:["fat-filesystem"]
+  "Unikernel.Main" (console @-> block @-> http @-> job)
 
 let net =
   match get_mode () with
@@ -21,7 +24,7 @@ let server =
   http_server 8080 (stack default_console)
 
 let storage =
-  fat (block_of_file "disk.img")
+  block_of_file "disk.img"
 
 let () =
   register "queue" [
