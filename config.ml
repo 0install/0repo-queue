@@ -1,8 +1,8 @@
 open Mirage
 
 let queue = foreign
-  ~libraries:["fat-filesystem"]
-  ~packages:["fat-filesystem"]
+  ~libraries:["fat-filesystem"; "cstruct.syntax"]
+  ~packages:["fat-filesystem"; "cstruct"]
   "Unikernel.Main" (console @-> block @-> http @-> job)
 
 let net =

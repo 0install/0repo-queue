@@ -7,14 +7,13 @@ module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (H : Cohttp_lwt.Server) :
   sig
     val start : C.t -> B.t -> (H.t -> unit Lwt.t) -> unit Lwt.t
   end = struct
-    module F = Fat.Fs.Make(B)(Io_page)
-    module Q = Upload_queue.Make(F)
+    module Q = Upload_queue.Make(B)
 
     let unsupported_method = H.respond_error ~status:`Bad_request ~body:"Method not supported\n" ()
 
     let put q request body =
       match Cohttp.Header.get request.Cohttp.Request.headers "Content-Length" with
-      | None -> H.respond_error ~status:`Bad_request ~body:"Missing Content-Length\n" ()
+      | None -> H.respond_error ~status:`Length_required ~body:"Missing Content-Length\n" ()
       | Some len ->
           let item = { Upload_queue.
             size = Int64.of_string len;
@@ -23,6 +22,8 @@ module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (H : Cohttp_lwt.Server) :
           Q.Upload.add q item >>= function
           | `Ok () -> H.respond_string ~status:`OK ~body:"Accepted\n" ()
           | `Error (`Unknown ex) -> raise ex
+          | `Error `Disk_full ->
+              H.respond_error ~status:`Insufficient_storage ~body:"Disk full" ()
           | `Error (`Wrong_size actual) ->
               let body = Printf.sprintf
                 "Upload has wrong size: Content-Length said %Ld but got %Ld"
@@ -60,10 +61,7 @@ module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (H : Cohttp_lwt.Server) :
       Log.write := C.log_s c;
       Log.info "start in queue service" >>= fun () ->
 
-      F.connect b >>= function
-      | `Error _ -> failwith "F.connect"
-      | `Ok fs ->
-      Q.create fs >>= fun q ->
+      Q.create b >>= fun q ->
 
       let callback _conn_id request body =
         try_lwt

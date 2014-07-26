@@ -59,4 +59,5 @@ type page_aligned_buffer = Cstruct.t
 
 let connect () =
   let data = Cstruct.create size in
+  Cstruct.blit_from_string (String.make sector_size (Char.chr 0)) 0 data 0 sector_size;
   `Ok data |> return

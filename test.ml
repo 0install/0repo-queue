@@ -4,11 +4,10 @@
 open OUnit
 open Lwt
 
-module Fat1 = Fat.Fs.Make(Fake_block)(Io_page)
-module Q = Upload_queue.Make(Fat1)
+module Q = Upload_queue.Make(Fake_block)
 
+(* Remove this to get verbose output *)
 let () =
-  (* Remove this to get verbose output *)
   Log.write := (fun _ -> Lwt.return ())
 
 let (>>|=) x f =
@@ -16,23 +15,21 @@ let (>>|=) x f =
   | `Ok y -> f y
   | `Error _ -> assert false
 
-let id x = x
+let prefix x = String.sub x 0 (min 10 (String.length x))
 
 let make_queue () =
-  Fake_block.connect () >>|=
-  Fat1.connect >>|= fun fs ->
-  Fat1.format fs (Int64.of_int Fake_block.size) >>|= fun () ->
-  Q.create fs
+  Fake_block.connect () >>|= fun b ->
+  Q.create b
 
 let read {Upload_queue.size; data} =
   Lwt_stream.to_list data >>= fun items ->
   let contents = String.concat "" items in
-  assert_equal size (String.length contents |> Int64.of_int);
+  assert_equal ~printer:Int64.to_string size (String.length contents |> Int64.of_int);
   return contents
 
 let check_download q expected =
   Q.Download.peek q >>= read >>= fun contents ->
-  assert_equal ~printer:id expected contents;
+  assert_equal ~printer:prefix expected contents;
   Q.Download.delete q
 
 let with_queue fn : unit =
@@ -42,7 +39,7 @@ let suite = "queue" >:::[
 
   "full" >:: (fun () -> with_queue (fun q ->
     let upload x =
-      let data = string_of_int x in
+      let data = string_of_int x ^ String.make 5370 ' ' in
       let item = { Upload_queue.
         size = String.length data |> Int64.of_int;
         data = Lwt_stream.of_list [data];
@@ -50,14 +47,15 @@ let suite = "queue" >:::[
       Q.Upload.add q item in
     for_lwt x = 1 to 5 do upload x >>|= return done >>= fun () ->
     upload 6 >>= function
-    | `Ok () | `Error (`Wrong_size _) -> assert false
-    | `Error (`Unknown _) ->
-    (* Note: we get Failure("Unknown error: Invalid_argument(\"invalid bounds (index 29184, length 4096)\")") *)
+    | `Ok () | `Error (`Wrong_size _ | `Unknown _) -> assert false
+    | `Error `Disk_full ->
 
     for_lwt x = 1 to 5 do
-      let expected = string_of_int x in
+      let expected = string_of_int x ^ String.make 5370 ' ' in
       check_download q expected
-    done
+    done >>= fun () ->
+
+    upload 1 >>|= return
   ));
 
   "parallel" >:: (fun () -> with_queue (fun q ->
@@ -96,10 +94,8 @@ let suite = "queue" >:::[
   ));
 
   "crash" >:: (fun () -> Lwt_unix.run begin
-    Fake_block.connect () >>|=
-    Fat1.connect >>|= fun fs ->
-    Fat1.format fs (Int64.of_int Fake_block.size) >>|= fun () ->
-    Q.create fs >>= fun q ->
+    Fake_block.connect () >>|= fun b ->
+    Q.create b >>= fun q ->
 
     let stream1, push1 = Lwt_stream.create () in
     let stream2, push2 = Lwt_stream.create () in
@@ -113,7 +109,7 @@ let suite = "queue" >:::[
     push2 None;
 
     (* Crash, reboot... *)
-    Q.create fs >>= fun q ->
+    Q.create b >>= fun q ->
 
     Q.Upload.add q { Upload_queue.size = 5L; data = Lwt_stream.of_list ["hello"] } >>|= fun () ->
 

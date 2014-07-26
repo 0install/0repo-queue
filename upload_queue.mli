@@ -1,10 +1,6 @@
 (* Copyright (C) 2014, Thomas Leonard
  * See the README file for details. *)
 
-module type FS = V1_LWT.FS with
-  type page_aligned_buffer = Cstruct.t and
-  type block_device_error = Fat.Fs.block_error
-
 (** An upload.
  * To avoid loading complete uploads into RAM, we stream them between
  * the network and the disk. *)
@@ -13,15 +9,15 @@ type item = {
   data : string Lwt_stream.t;
 }
 
-type add_error = [`Wrong_size of int64 | `Unknown of exn]
+type add_error = [`Wrong_size of int64 | `Disk_full | `Unknown of exn]
 
-module Make : functor (F : FS) ->
+module Make : functor (B : V1_LWT.BLOCK) ->
   sig
     (** An upload queue. *)
     type t
 
     (** Create a new queue, backed by a filesystem. *)
-    val create : F.t -> t Lwt.t
+    val create : B.t -> t Lwt.t
 
     module Upload : sig
       (** Add an upload to the queue.
