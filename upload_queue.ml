@@ -255,11 +255,14 @@ module Make (B : V1_LWT.BLOCK) = struct
       )
 
     let delete q =
-      Lwt_mutex.with_lock mutex (fun () ->
-        if !being_processed = None then (
-          (* If the client wasn't sure we got their delete, they may retry. *)
-          Log.info "DELETE called but nothing pending"
-        ) else (
+      if !being_processed = None then (
+        (* If the client wasn't sure we got their delete, they may retry.
+         * Do this outside the mutex so we don't wait for uploads. *)
+        Log.info "DELETE called but nothing pending"
+      ) else if (Lwt_mutex.is_locked mutex) then (
+        failwith "DELETE during another download operation!"
+      ) else (
+        Lwt_mutex.with_lock mutex (fun () ->
           Log.info "deleting head item" >>= fun () ->
           Queue.pop q.queue |> ignore;
           persist_queue q >>= fun () ->
