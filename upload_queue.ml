@@ -67,18 +67,16 @@ module Make (F : FS) = struct
           Log.info "file '%s' exists; retrying..." name >> mktemp fs
       | `Error x -> failwith (Fat.Fs.string_of_filesystem_error x)
 
+    (* Stream data to file. *)
     let add_as q name {size; data} =
+      let page_buffer = Io_page.get 256 |> Io_page.to_cstruct in
+
       (* Set the first byte to N to indicate that we're not done yet.
        * If we reboot while this flag is set, the partial upload will
        * be deleted. *)
-      let partial_flag = Cstruct.of_string "N" in
-      F.write q.fs name 0 partial_flag >>|= fun () ->
-
-      (* Stream data to file. *)
+      let page_buffer_used = ref 1 in
+      Cstruct.set_char page_buffer 0 'N';
       let file_offset = ref 1 in
-
-      let page_buffer = Io_page.get 256 |> Io_page.to_cstruct in
-      let page_buffer_used = ref 0 in
 
       let flush_page_buffer () =
         Log.info "Flushing %d bytes to disk" !page_buffer_used >>= fun () ->
