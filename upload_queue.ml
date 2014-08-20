@@ -21,6 +21,8 @@ cstruct index_entry {
 let _ = hexdump_index_entry
 
 module Make (B : V1_LWT.BLOCK) = struct
+  module ReadBuffer = Block_buffer.Make(B)
+
   type file = {
     start_sector : int64;
     file_length : int64;
@@ -205,25 +207,24 @@ module Make (B : V1_LWT.BLOCK) = struct
     let mutex = Lwt_mutex.create ()
 
     let being_processed = ref None
-    let pages_per_chunk = 16
-    let max_chunk_size = Int64.of_int (pages_per_chunk * page_size)
 
     let send q item =
-      let offset = ref 0L in
+      lwt rb = ReadBuffer.create q.b
+        ~qlen:5
+        ~sectors_per_read:33
+        ~start:item.start_sector
+        ~len:(sectors_needed q item.file_length) in
+
       let next () =
         try_lwt
           if Some item <> !being_processed then failwith "Item deleted during read!";
-          let chunk_size = min max_chunk_size (item.file_length -- !offset) in
-          if chunk_size = 0L then return None
-          else (
-            let sector = item.start_sector ++ (!offset // q.sector_size) in
-            let bufs = Io_page.pages (pages_needed (Int64.to_int chunk_size)) |> List.map Io_page.to_cstruct in
-            B.read q.b sector bufs >>|= fun () ->
-            offset := !offset ++ chunk_size;
-            let data = String.sub (Cstruct.copyv bufs) 0 (Int64.to_int chunk_size) in
-            (* Log.info "Sending chunk '%s'" data >>= fun () -> *)
-            return (Some data)
-          )
+          match ReadBuffer.read rb with
+          | None -> return None
+          | Some buf_t ->
+              lwt buf = buf_t in
+              let data = Cstruct.to_string buf in
+              (* Log.info "Sending chunk '%s'" data >>= fun () -> *)
+              return (Some data)
         with ex ->
           Log.info "read failed: %s" (Printexc.to_string ex) >>= fun () ->
           return None in
