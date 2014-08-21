@@ -35,11 +35,9 @@ module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (H : Cohttp_lwt.Server) :
       Q.Download.peek q >>= fun {Upload_queue.size; data} ->
       let body = Cohttp_lwt_body.of_stream data in
       let headers = Cohttp.Header.init_with "Content-Length" (Int64.to_string size) in
-
-      (* Adding a content-length loses the transfer-encoding for some reason, so add it back: *)
-      let headers = Cohttp.Header.add headers "transfer-encoding" "chunked" in
-
-      H.respond ~headers ~status:`OK ~body ()
+      let encoding = Cohttp.Transfer.Fixed (Int64.to_int size) in
+      let res = H.Response.make ~status:`OK ~encoding ~headers () in
+      return (res, body)
 
     let delete q =
       Q.Download.delete q >>= fun () ->
