@@ -211,7 +211,7 @@ module Make (B : V1_LWT.BLOCK) = struct
     let send q item =
       lwt rb = ReadBuffer.create q.b
         ~qlen:5
-        ~sectors_per_read:33
+        ~sectors_per_read:64
         ~start:item.start_sector
         ~len:(sectors_needed q item.file_length) in
 
