@@ -21,7 +21,7 @@ let stack console =
   | `Socket -> socket_stackv4 console [Ipaddr.V4.any]
 
 let server =
-  http_server 8080 (stack default_console)
+  http_server (`TCP (`Port 8080)) (conduit_direct (stack default_console))
 
 let storage =
   block_of_file "disk.img"
