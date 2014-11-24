@@ -47,13 +47,13 @@ module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (H : Cohttp_lwt.Server) :
       match H.Request.meth request with
       | `PUT -> put q request body
       | `POST -> H.respond_error ~status:`Bad_request ~body:"Use PUT, not POST\n" ()
-      | `GET | `HEAD | `OPTIONS | `PATCH | `DELETE -> unsupported_method
+      | _ -> unsupported_method
 
     let handle_downloader q request =
       match H.Request.meth request with
       | `GET -> get q
       | `DELETE -> delete q
-      | `HEAD | `PUT | `POST | `OPTIONS | `PATCH -> unsupported_method
+      | _ -> unsupported_method
 
     let start c b http =
       Log.write := C.log_s c;

@@ -24,7 +24,7 @@ let server =
   http_server (`TCP (`Port 8080)) (conduit_direct (stack default_console))
 
 let storage =
-  block_of_file "disk.img"
+  block_of_file "xvda"
 
 let () =
   register "queue" [
