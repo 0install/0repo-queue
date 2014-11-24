@@ -17,7 +17,7 @@ let net =
 
 let stack console =
   match net with
-  | `Direct -> direct_stackv4_with_dhcp console tap0
+  | `Direct -> direct_stackv4_with_default_ipv4 console tap0
   | `Socket -> socket_stackv4 console [Ipaddr.V4.any]
 
 let server =
