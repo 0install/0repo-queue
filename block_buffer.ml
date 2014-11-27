@@ -32,6 +32,7 @@ module Make (B : V1_LWT.BLOCK) = struct
       let result =
         B.read t.b t.next buffer >>= function
         | `Ok () -> return result_buffer
+        | `Error (`Unknown x) -> failwith ("Block.read failed: " ^ x)
         | `Error _ -> failwith "Block.read failed!" in
       Queue.add result t.q;
       t.next <- t.next ++ Int64.of_int sectors_to_get
