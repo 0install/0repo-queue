@@ -73,11 +73,8 @@ module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (H : Cohttp_lwt.Server) :
             (Printexc.get_backtrace ()) >>= fun () ->
           raise ex in
 
-      let conn_closed _conn_id () =
+      let conn_closed _conn_id =
         Log.info "connection closed" |> ignore in
 
-      http { H.
-        callback;
-        conn_closed
-      }
+      http (H.make ~callback ~conn_closed ())
   end
