@@ -5,3 +5,5 @@ Makefile
 _build
 disk.img
 queue.xl
+queue_libvirt.xml
+static1.ml*
