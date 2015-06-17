@@ -5,7 +5,7 @@ open Lwt
 
 module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (H : Cohttp_lwt.Server) :
   sig
-    val start : C.t -> B.t -> (H.t -> unit Lwt.t) -> unit Lwt.t
+    val start : C.t -> B.t -> (Conduit_mirage.server -> H.t -> unit Lwt.t) -> unit Lwt.t
   end = struct
     module Q = Upload_queue.Make(B)
 
@@ -36,7 +36,7 @@ module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (H : Cohttp_lwt.Server) :
       let body = Cohttp_lwt_body.of_stream data in
       let headers = Cohttp.Header.init_with "Content-Length" (Int64.to_string size) in
       let encoding = Cohttp.Transfer.Fixed size in
-      let res = H.Response.make ~status:`OK ~encoding ~headers () in
+      let res = Cohttp.Response.make ~status:`OK ~encoding ~headers () in
       return (res, body)
 
     let delete q =
@@ -44,13 +44,13 @@ module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (H : Cohttp_lwt.Server) :
       H.respond_string ~status:`OK ~body:"OK\n" ()
 
     let handle_uploader q request body =
-      match H.Request.meth request with
+      match Cohttp.Request.meth request with
       | `PUT -> put q request body
       | `POST -> H.respond_error ~status:`Bad_request ~body:"Use PUT, not POST\n" ()
       | _ -> unsupported_method
 
     let handle_downloader q request =
-      match H.Request.meth request with
+      match Cohttp.Request.meth request with
       | `GET -> get q
       | `DELETE -> delete q
       | _ -> unsupported_method
@@ -76,5 +76,5 @@ module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (H : Cohttp_lwt.Server) :
       let conn_closed _conn_id =
         Log.info "connection closed" |> ignore in
 
-      http (H.make ~callback ~conn_closed ())
+      http (`TCP 8080) (H.make ~callback ~conn_closed ())
   end
