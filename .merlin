@@ -1,2 +1,2 @@
-PKG str lwt.syntax mirage-console mirage-http mirage-types.lwt tcpip.stack-socket tls
+PKG str lwt.syntax mirage-console-unix mirage-http mirage-types.lwt tcpip.stack-socket tls
 EXT lwt

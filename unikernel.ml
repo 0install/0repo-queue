@@ -18,12 +18,10 @@ let round_up bytes block_size =
   let blocks = (bytes + block_size - 1) / block_size in
   blocks * block_size
 
-module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (Conduit : Conduit_mirage.S) (CertStore : V1_LWT.KV_RO) =
+module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (H : Cohttp_lwt.Server) (CertStore : V1_LWT.KV_RO) =
   struct
     module Part = Mbr_partition.Make(B)
     module Q = Upload_queue.Make(Part)
-    module Http = HTTP.Make(Conduit)
-    module H = Http.Server
 
     let read_from_partition b ~len =
       Part.get_info b >>= fun info ->
@@ -71,7 +69,7 @@ module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (Conduit : Conduit_mirage.S)
       let body = Cohttp_lwt_body.of_stream data in
       let headers = Cohttp.Header.init_with "Content-Length" (Int64.to_string size) in
       let encoding = Cohttp.Transfer.Fixed size in
-      let res = H.Response.make ~status:`OK ~encoding ~headers () in
+      let res = Cohttp.Response.make ~status:`OK ~encoding ~headers () in
       return (res, body)
 
     let delete q =
@@ -79,13 +77,13 @@ module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (Conduit : Conduit_mirage.S)
       H.respond_string ~status:`OK ~body:"OK\n" ()
 
     let handle_uploader q request body ~user =
-      match H.Request.meth request with
+      match Cohttp.Request.meth request with
       | `PUT -> put q request body ~user
       | `POST -> H.respond_error ~status:`Bad_request ~body:"Use PUT, not POST\n" ()
       | _ -> unsupported_method
 
     let handle_downloader q request =
-      match H.Request.meth request with
+      match Cohttp.Request.meth request with
       | `GET -> get q
       | `DELETE -> delete q
       | _ -> unsupported_method
@@ -119,7 +117,7 @@ module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (Conduit : Conduit_mirage.S)
     let conn_closed _conn_id =
       Log.info "connection closed" |> ignore
 
-    let start c b conduit cert_store =
+    let start c b http cert_store =
       Log.write := C.log_s c;
       Log.info "start in queue service" >>= fun () ->
 
@@ -132,11 +130,9 @@ module Main (C : V1_LWT.CONSOLE) (B : V1_LWT.BLOCK) (Conduit : Conduit_mirage.S)
 
       Q.create queue_partition >>= fun q ->
 
-      lwt certs = read_from_kv cert_store "tls/server.pem" >|= X509.Cert.of_pem_cstruct
-      and pk = read_from_partition key_partition ~len:private_key_len >|= X509.PK.of_pem_cstruct1 in
+      lwt certs = read_from_kv cert_store "tls/server.pem" >|= X509.Encoding.Pem.Cert.of_pem_cstruct
+      and pk = read_from_partition key_partition ~len:private_key_len >|= X509.Encoding.Pem.PK.of_pem_cstruct1 in
       let certificates = `Single (certs, pk) in
       let tls_config = Tls.Config.server ~certificates () in
-      let spec = H.make ~callback:(callback q) ~conn_closed () in
-      let mode = `TLS (tls_config, `TCP (`Port 8443)) in
-      Conduit.serve ~ctx:conduit ~mode (H.listen spec)
+      http (`TLS (tls_config, `TCP 8443)) (H.make ~callback:(callback q) ~conn_closed ())
   end
